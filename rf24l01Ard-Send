@@ -1,18 +1,13 @@
 #include <SPI.h>
 #include "nRF24L01.h"
 #include "RF24.h"
-#include <dht.h>
  
 #include <avr/sleep.h>
 #include <avr/power.h>
 #include <avr/wdt.h>
  
-//DHTSENSOR
-dht DHT;
-#define DHT11PINDATA 3
-#define DHT11PINVCC  2
-float temperature;
-float humidity;
+float temperature=55;
+float humidity=88;
  
 // NRF24L01
 // Set up nRF24L01 radio on SPI pin for CE, CSN
@@ -21,61 +16,13 @@ RF24 radio(9,10);
 const uint64_t pipes[2] = { 0xF0F0F0F0E1LL, 0x7365727631LL };
  
 char receivePayload[32];
-uint8_t counter=0;
+uint64_t counter=0;
  
-//count number of entering into main loop
-uint8_t loopCounter=109;  
- 
-//WATCHDOG
-volatile int f_wdt=1;
- 
-ISR(WDT_vect) {
-  if(f_wdt == 0) {
-    f_wdt=1;
-  } else {
-    //Serial.println("WDT Overrun!!!");
-  }
-}
- 
-void enterSleep(void) {
-  radio.powerDown();
-  set_sleep_mode(SLEEP_MODE_PWR_DOWN);   /* EDIT: could also use SLEEP_MODE_PWR_DOWN for lowest power consumption. */
-  sleep_enable();
- 
-  /* Now enter sleep mode. */
-  sleep_mode();
- 
-  /* The program will continue from here after the WDT timeout*/
-  sleep_disable(); /* First thing to do is disable sleep. */
- 
-  /* Re-enable the peripherals. */
-  power_all_enable();
-}
- 
+//count number of entering into main loop 
  
 void setup() {
  
   Serial.begin(9600);
- 
-  //WATCHDOG
-  /* Clear the reset flag. */
-  MCUSR &= ~(1<<WDRF);
-  /* In order to change WDE or the prescaler, we need to
-   * set WDCE (This will allow updates for 4 clock cycles).
-   */
-  WDTCSR |= (1<<WDCE) | (1<<WDE);
-  /* set new watchdog timeout prescaler value */
-  WDTCSR = 1<<WDP0 | 1<<WDP3; /* 8.0 seconds */
-  /* Enable the WD interrupt (note no reset). */
-  WDTCSR |= _BV(WDIE);
- 
-  //CONFIGURE DHT11
-  pinMode(DHT11PINVCC, OUTPUT);
-  //make it blink at startup
-  digitalWrite(DHT11PINVCC, HIGH);
-  delay(500);
-  digitalWrite(DHT11PINVCC, LOW);
- 
   //CONFIGURE RADIO
   radio.begin();
   // Enable this seems to work better
@@ -93,25 +40,13 @@ void setup() {
 }
  
 void loop() {
-  if(f_wdt == 1) {
-    loopCounter ++;
-    if (loopCounter > 6) {
-      // 110 *8 = 880s = 14.6min @ 16mhtz
-      readSensor();
       sendOverRadio();
-      loopCounter = 0;
-    }
-    f_wdt = 0;
-    enterSleep();
-  } else {
-    //nothing
-  }
 }
  
 void sendOverRadio() {
   radio.powerUp();
   //prepare 
-  uint8_t data1 = 0;
+  uint16_t data1 = 0;
   char temp[5];
   bool timeout=0;
   uint16_t nodeID = pipes[0] & 0xff;
@@ -134,7 +69,8 @@ void sendOverRadio() {
   strcat(outBuffer,dtostrf(temperature, 4,2, buffer));
   strcat(outBuffer,",");
   strcat(outBuffer,dtostrf(humidity, 4,2, buffer));
- 
+ Serial.println(outBuffer);
+ printf("Send successful\n\r");
   // Stop listening and write to radio
   radio.stopListening();
  
@@ -156,41 +92,16 @@ void sendOverRadio() {
       // Compare receive payload with outBuffer
       if ( ! strcmp(outBuffer, receivePayload) ) {
           rtt = millis() - send_time;
-          //Serial.println("inBuffer --> rtt:");
-          //Serial.println(rtt);
+          Serial.println("inBuffer --> rtt:");
+          Serial.println(rtt);
       }
  
       // Check for timeout and exit the while loop
       if ( millis() - send_time > radio.getMaxTimeout() ) {
-          //Serial.println("Timeout!!!");
+          Serial.println("Timeout!!!");
           timeout = 1;
       }
  
       delay(10);
   } // End while
-}
- 
-void readSensor() {
-  digitalWrite(DHT11PINVCC, HIGH);
-  delay(200);
-  int chk = DHT.read11(DHT11PINDATA);
-  //Serial.print("Read sensor: ");
-  switch (chk) {
-    case DHTLIB_OK: 
-      //Serial.println("OK"); 
-      break;
-    case DHTLIB_ERROR_CHECKSUM: 
-      //Serial.println("Checksum error"); 
-      break;
-    case DHTLIB_ERROR_TIMEOUT: 
-      //Serial.println("Time out error"); 
-      break;
-    default: 
-      //Serial.println("Unknown error"); 
-      break;
-  }
-  temperature = DHT.temperature;
-  humidity = DHT.humidity;
- 
-  digitalWrite(DHT11PINVCC, LOW);
 }
