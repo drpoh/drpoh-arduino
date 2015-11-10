@@ -1,0 +1,210 @@
+/*
+***********************************************
+
+-----------EDITED 12.09.2014---------------------
+
+***********************************************
+*/
+#include "Ultrasonic.h"
+//РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј РєРѕРЅС‚Р°РєС‚С‹ РґР»СЏ РїРµСЂРІРѕРіРѕ РґР°С‚С‡РёРєР°
+#define  TRIG_PIN  6
+#define  ECHO_PIN  7
+//РћРїСЂРµРґРµР»СЏРµРј РїРµСЂРІС‹Р№ РґР°С‚С‡РёРє
+Ultrasonic OurModuleDown(TRIG_PIN, ECHO_PIN);
+int state1=0b0000;  //upSens/downSens/state/upInterrupt
+// pins 0, 1 used by Serial
+//Pin connected to ST_CP of 74HC595
+int latchPin = 8;
+//Pin connected to SH_CP of 74HC595
+int clockPin = 12;
+////Pin connected to DS of 74HC595
+int dataPin  = 11;
+int totalSteps = 11;
+word powers[11] = {
+  0, 1, 3, 7, 15, 31, 63,127, 255,511, 1023};
+word counter=0;
+word stepDelay=300;
+word mode=0;
+byte steps=0;
+int downSens=3;
+int upSens=2;
+int downSensVal=LOW;
+int upSensVal=LOW;
+unsigned long lastTime;
+int waitTime=3000;
+int errorTime=10000;
+boolean downInterrupt=false;
+boolean state=false;
+int ledPin=13;
+void setup()
+{ 
+  //set pins to output so you can control the shift register
+  pinMode(latchPin, OUTPUT);
+  pinMode(clockPin, OUTPUT);
+  pinMode(dataPin, OUTPUT);
+  pinMode(downSens, INPUT);
+  pinMode(upSens, INPUT);
+  pinMode(ledPin, OUTPUT);
+  off();
+  Serial.begin(9600);
+}
+//===========LOOP==================
+void loop()  {
+start:
+  if((millis()-lastTime)>errorTime){
+    Serial.println("error Off");
+    off();
+  }
+  UltrasonicDownFire();
+  //downSensVal=digitalRead(downSens);
+  //digitalWrite(ledPin, downSensVal);
+  //upSensVal=digitalRead(upSens);
+  //downSensVal=digitalRead(downSens);
+  Serial.print("down- ");
+  Serial.print(downSensVal);
+  Serial.print("  | up- ");
+  Serial.print(upSensVal);
+  Serial.print("  | state- ");
+  Serial.println(state);
+  if ((!downSensVal && !upSensVal) && state==true){
+    if(downInterrupt=true){
+      mode=4; 
+    }
+    else {
+      mode=2;  
+    }
+  }
+  else if ((downSensVal || upSensVal) && state==false)  {
+    Blink(2,200);
+    if(downSensVal)  {
+      mode=3;  
+      downInterrupt=true;
+    }
+    else {
+      mode=1;  
+    }
+  }
+  else {
+    goto start;
+  }
+  switch (mode)
+  {
+  case 0:
+    off();
+    break;
+  case 1:
+    fromUpOn();
+    state=true;
+    break;
+  case 2:
+    fromUpOff();
+    state=false;  
+    break;
+  case 3:
+    fromDownOn();
+    state=true;
+    downInterrupt=true;
+    break;
+  case 4:
+    fromDownOff();
+    state=false;
+    downInterrupt=false;
+    break;      
+  }
+}
+//===========_Down_On==================
+void fromDownOn() {
+  for(steps=0;steps<totalSteps;steps++){
+    if(steps==1||steps==9){
+      steps++;
+    }
+    // tell the 595s we're about to add some new data!
+    digitalWrite(latchPin, LOW);
+    shiftOut(dataPin, clockPin, MSBFIRST, powers[steps]>>8);
+    shiftOut(dataPin, clockPin, MSBFIRST, powers[steps]);
+    //tell the 595s to ouput our data
+    digitalWrite(latchPin, HIGH);
+    delay(stepDelay);  
+  }
+  lastTime=millis();
+  delay(waitTime);
+}
+//===============_Up_Off=================
+void fromUpOff()
+{
+  for(steps=(totalSteps-1);steps>0;steps--){
+    if(steps==9){
+      steps--;
+    }
+    // tell the 595s we're about to add some new data!
+    digitalWrite(latchPin, LOW);
+    shiftOut(dataPin, clockPin, MSBFIRST, powers[steps]>>8);
+    shiftOut(dataPin, clockPin, MSBFIRST, powers[steps]); 
+    //tell the 595s to ouput our data
+    digitalWrite(latchPin, HIGH);
+    delay(stepDelay);  
+  }
+}
+void fromUpOn() {
+  for(steps=(totalSteps-1);steps>0;steps--){
+    if(steps==9){
+      steps--;
+    }
+    // tell the 595s we're about to add some new data!
+    digitalWrite(latchPin, LOW);
+    shiftOut(dataPin, clockPin, MSBFIRST, 1023-powers[steps] >> 8);
+    shiftOut(dataPin, clockPin, MSBFIRST, 1023-powers[steps]);  
+    //tell the 595s to ouput our data
+    digitalWrite(latchPin, HIGH);
+    delay(stepDelay);
+  }
+  lastTime=millis();
+  delay(waitTime);
+}
+
+void fromDownOff()
+{
+  for(steps=0;steps<totalSteps;steps++){
+    if(steps==9){
+      steps++;
+    }
+    // tell the 595s we're about to add some new data!
+    digitalWrite(latchPin, LOW);
+    shiftOut(dataPin, clockPin, MSBFIRST, 1023-powers[steps]>>8);
+    shiftOut(dataPin, clockPin, MSBFIRST, 1023-powers[steps]);  
+    //tell the 595s to ouput our data
+    digitalWrite(latchPin, HIGH);
+    delay(stepDelay);
+  }
+}
+//=====================
+void off()  {
+  digitalWrite(latchPin, LOW);
+  int num =0;
+  shiftOut(dataPin, clockPin, MSBFIRST, num>>8);
+  shiftOut(dataPin, clockPin, MSBFIRST, num);  
+  //tell the 595s to ouput our data
+  digitalWrite(latchPin, HIGH);
+  state=false;
+  lastTime=millis();
+}
+//---------------------------------------------
+void Blink(int n, int t){
+  for(int i=0; i<n*2;i++){
+    digitalWrite(ledPin,!(digitalRead(ledPin)));
+    delay (t);
+  }
+}
+//-----------------------------------------------
+void UltrasonicDownFire() {
+  if((OurModuleDown.Ranging(CM) < 70) && (OurModuleDown.Ranging(CM) > 3))
+  {
+    downInterrupt=true;
+    downSensVal=HIGH;
+    Serial.print("UltrasonicDOWN-");
+    Serial.println(OurModuleDown.Ranging(CM));
+  } 
+  else 
+    downSensVal=LOW;
+  //downInterrupt=false;
+} 
